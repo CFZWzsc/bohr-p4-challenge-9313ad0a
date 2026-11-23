@@ -9,7 +9,7 @@ answers, private data or credentials are included.
 ## Skill
 
 - Name: `evidence-mindmap-builder`
-- Summary: Use when a case supplies notes, a paper section, or a project brief and asks for a mind map or concept structure; parses headings and paragraphs into a typed node tree (question, method, evidence, conclusion, limitation, task), attaches a character-level evidence locator to each node, detects duplicates and overloaded branches, adds causal/contrast edges, and emits Mermaid plus JSON in /app/output/result.json while preserving case_id and every output_contract field. Deterministic standard library only; no network.
+- Summary: Use when a case supplies notes, a paper section, or a project brief and asks for a mind map or concept structure; parses headings and paragraphs into a typed node tree (question, method, evidence, conclusion, risk, limitation, task), attaches a source- and character-level evidence locator to each node, reports per-material coverage, detects duplicates and overloaded branches, adds causal/contrast edges, and emits Mermaid plus JSON in /app/output/result.json while preserving case_id and every output_contract field. Deterministic standard library only; no network.
 
 ## Contents
 

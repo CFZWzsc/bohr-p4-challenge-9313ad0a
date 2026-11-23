@@ -23,6 +23,7 @@ TYPE_RULES = [
     ("method", ("方法", "实验", "模型", "样本", "数据", "采用", "measured", "method", "model", "dataset")),
     ("evidence", ("%", "p<", "p=", "p =", "图", "表", "figure", "table", "ci", "n=", "显著")),
     ("conclusion", ("结论", "表明", "说明", "因此", "conclude", "suggest", "demonstrat")),
+    ("risk", ("风险", "隐患", "缓解", "trade-off", "risk", "threat", "mitigation")),
     ("limitation", ("局限", "不足", "未能", "尚需", "limitation", "limited", "future work")),
     ("task", ("待办", "截止", "负责", "完成", "deadline", "todo", "owner")),
 ]
@@ -366,7 +367,11 @@ def main():
         return 0
 
     parts.sort(key=lambda item: len(item["text"]), reverse=True)
-    text = parts[0]["text"]
+    text = "\n\n".join(item["text"] for item in parts)
+    bounds, cursor = [], 0
+    for item in parts:
+        bounds.append((cursor, cursor + len(item["text"]), item["label"]))
+        cursor += len(item["text"]) + 2
     title = case.get("title") or case.get("topic") or case.get("name")
     title_given = bool(title)
     if not title:
@@ -381,6 +386,10 @@ def main():
         max_children, max_depth = 7, 4
 
     nodes = build_nodes(text, str(title))
+    for node in nodes:
+        node["source"] = next((label for start, end, label in bounds
+                               if start <= node["char_start"] < end), None)
+        node["page"] = None
     nodes = mark_duplicates(nodes)
     edges = add_edges(nodes)
 
@@ -425,14 +434,25 @@ def main():
     result["result"]["structure_issues"] = issues
     result["result"]["outline"] = outline
     result["result"]["evidence_map"] = [
-        {"node": node["id"], "paragraph_index": node["paragraph_index"],
+        {"node": node["id"], "source": node.get("source"), "page": None,
+         "paragraph_index": node["paragraph_index"],
          "char_start": node["char_start"], "char_end": node["char_end"], "quote": node["quote"]}
         for node in nodes if node["id"] != "root"
     ][:200]
     result["result"]["sources"] = [
         {"label": item["label"], "path": item["path"], "chars": len(item["text"]),
-         "sha256": sha256_text(item["text"])} for item in parts
+         "char_offset": bounds[idx][0], "sha256": sha256_text(item["text"])}
+        for idx, item in enumerate(parts)
     ]
+    result["result"]["coverage"] = [
+        {"label": item["label"], "path": item["path"], "chars": len(item["text"]),
+         "char_offset": bounds[idx][0], "parsed": True}
+        for idx, item in enumerate(parts)
+    ]
+    result["result"]["review_queue"] = []
+    if len(content_nodes) > 200:
+        result["uncertainty"].append({"item": "evidence_map", "detail": "truncated_to_200",
+                                      "total": len(content_nodes)})
     result["evidence"] = result["result"]["evidence_map"][:80]
     if issues:
         result["uncertainty"].append({"item": "structure", "detail": "structure_issues_present",

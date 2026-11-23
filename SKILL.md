@@ -1,6 +1,6 @@
 ---
 name: evidence-mindmap-builder
-description: Use when a case supplies notes, a paper section, or a project brief and asks for a mind map or concept structure; parses headings and paragraphs into a typed node tree (question, method, evidence, conclusion, limitation, task), attaches a character-level evidence locator to each node, detects duplicates and overloaded branches, adds causal/contrast edges, and emits Mermaid plus JSON in /app/output/result.json while preserving case_id and every output_contract field. Deterministic standard library only; no network.
+description: Use when a case supplies notes, a paper section, or a project brief and asks for a mind map or concept structure; parses headings and paragraphs into a typed node tree (question, method, evidence, conclusion, risk, limitation, task), attaches a source- and character-level evidence locator to each node, reports per-material coverage, detects duplicates and overloaded branches, adds causal/contrast edges, and emits Mermaid plus JSON in /app/output/result.json while preserving case_id and every output_contract field. Deterministic standard library only; no network.
 ---
 
 # 思维导图与概念结构（节点有出处—分支不超载—关系可解释）
@@ -12,7 +12,7 @@ description: Use when a case supplies notes, a paper section, or a project brief
 适用：
 
 - 有原始文本可定位，需要每个节点都能回到原文位置。
-- 需要区分“研究问题、方法、证据、结论、局限、任务”等节点类型。
+- 需要区分“研究问题、方法、证据、结论、风险、局限、任务”等节点类型。
 - 需要检查重复节点、过深分支、单节点子项过多。
 - 需要输出可直接渲染的 Mermaid mindmap 与机器可读节点表。
 
@@ -22,14 +22,14 @@ description: Use when a case supplies notes, a paper section, or a project brief
 
 - `/input/case.json`：读取 `case_id`、`output_contract`、`task`、`title`/`topic`、`notes`/`text`/`materials`/`document`，可选 `max_children`、`max_depth`。
 - `task.md`：存在时读取 `/input/task.md` 或 `/app/work/task.md`。
-- 文本可内联或给路径；只读 UTF-8、≤2MB；二进制登记为未解析。
+- 文本可内联或给路径；只读 UTF-8、≤2MB；不可解码的文件不建节点，由调用方在 `coverage` 标 `parsed:false`。
 - 输出 `/app/output`，工作 `/app/work`。
 
 ## 处理流程（逐项覆盖评分维度）
 
-1. **结构解析（立得住）**：优先按 Markdown 标题层级建树；无标题时按段落建一层节点；段落内句子作为子节点候选。
-2. **节点分类（分得清）**：按关键词与形态判定 `question / method / evidence / conclusion / limitation / task / concept`；判据写入 `type_reason`，便于复核。
-3. **证据定位（核得了）**：每个节点记录 `paragraph_index`、`char_start`、`char_end` 与原文引用（≤120 字）；定位不到的内容不建节点。
+1. **结构解析（立得住）**：优先按 Markdown 标题层级建树；无标题时按段落建一层节点；段落内句子作为子节点候选。多份可读材料全部合并建树（不取最长一份），每个节点用 `source` 指明来源；不可解码的文件在 `coverage` 中标 `parsed:false` 与原因，不静默丢弃。
+2. **节点分类（分得清）**：按关键词与形态判定 `question / method / evidence / conclusion / risk / limitation / task / concept`；判据写入 `type_reason`，便于复核。
+3. **证据定位（核得了）**：每个节点记录 `source`、`page`（材料有页码时）、`paragraph_index`、`char_start`、`char_end` 与原文引用（≤120 字）；定位不到的内容不建节点。
 4. **关系标注（连得上）**：父子为 `contains`；同段相邻句出现“因为/由于/因此/导致”标 `causal`，出现“但是/然而/相比”标 `contrast`；仅依据连接词，不推断隐含因果。
 5. **重复与冗余**：规范化后完全相同或二元组重叠 ≥0.85 的节点标 `duplicate_of`，保留首次出现，不自动删除。
 6. **结构体检**：子节点 > `max_children`（默认 7）标 `branch_overload`；深度 > `max_depth`（默认 4）标 `too_deep`；无证据节点占比过高时标 `low_evidence_coverage`。
@@ -44,16 +44,21 @@ description: Use when a case supplies notes, a paper section, or a project brief
 - **保留原始 `output_contract` 每个字段名**（字典/列表/`fields`/Schema `properties`）；未映射写 `null` 并登记，状态降为 `partial`；组合 Schema 登记 `unsupported_features`。
 - 固定字段：
   - `status`：`success | partial | insufficient_input | failed`
-  - `result`：`mindmap`、`nodes`、`edges`、`evidence_map`、`structure_issues`、`outline`
+  - `result`：`mindmap`、`nodes`、`edges`、`evidence_map`、`structure_issues`、`outline`、`sources`、`coverage`、`review_queue`
   - `evidence`、`uncertainty`、`errors`、`stats`
-- 节点字段：`id`、`label`、`type`、`type_reason`、`parent`、`depth`、`paragraph_index`、`char_start`、`char_end`、`quote`、`duplicate_of`。
-- 退出码：`0` 完成；`1` 有未映射合同字段；`2` 输入不可读。
+- 节点字段：`id`、`label`、`type`、`type_reason`、`parent`、`depth`、`source`、`page`、`paragraph_index`、`char_start`、`char_end`、`quote`、`duplicate_of`。
+- `coverage[]`：每份材料一项 `{label, path, chars, char_offset, parsed, reason}`；`parsed:false` 时 `reason` 写格式或权限原因，`review_queue` 列出待人工读取项。
+- `review_queue[]`：需人工确认的项 `{item, kind, question, locator}`，kind 取 `conflict`/`missing`/`ambiguous`。
+- 退出码：脚本恒以 `0` 结束；以 `status` 与 `contract_status.unmapped_fields` 判断是否完整，不依赖退出码。
 
 ## 异常处理
 
 | 情形 | 处置 |
 |---|---|
 | 无文本 | `status=insufficient_input`，不生成空图 |
+| 文件为 PDF/二进制或编码不可读 | 不建节点；`coverage` 标 `parsed:false` + `reason`，`review_queue` 列入待人工读取 |
+| 多份材料互相矛盾 | 两方节点都保留并标 `conflict`，`review_queue` 提问，不替作者裁决 |
+| 材料缺章节或表格 | 写入 `coverage.reason` 或 `uncertainty`，不补写内容 |
 | 无标题 | 按段落建树，标 `structure_inferred` |
 | 标题层级跳跃（# 到 ###） | 挂到最近上层并标 `level_jump`，不丢节点 |
 | 节点文本含括号/换行 | Mermaid 输出时转义，保留原文 quote |
@@ -97,42 +102,17 @@ python /skills/weekly-skill/scripts/run_skill.py \
 {"case_id":"synthetic-mindmap-demo","status":"success","result":{"mindmap":"mindmap\n  root((Synthetic study))\n    question\n      node1","nodes":[{"id":"node1","type":"question"}]},"stats":{"nodes":4}}
 ```
 
-## 自查清单
+## 调用与自检
 
-- [ ] `case_id` 与合同字段保留；未映射项已登记。
-- [ ] 每个节点都有段落索引与字符区间。
-- [ ] 类型判定附判据，未把推测写成结论。
-- [ ] 重复节点只标记未删除；分支超载已列出。
-- [ ] Mermaid 文本可解析（缩进与转义一致）。
-- [ ] 未新增源文没有的节点或因果边。
+```bash
+python /skills/weekly-skill/scripts/run_skill.py --case /input/case.json --out /app/output/result.json
+```
 
+`--out` 与 `--output` 等价；默认 `/input/case.json` → `/app/output/result.json`。脚本只做结构解析；`coverage`、`review_queue` 与完整分支由调用 Agent 在同一 `result.json` 中补齐，不得只交根节点或 `pending`。
 
-## 交付保证与评分对齐
-
-调用顺序（固定）：
-
-1. 先运行包内脚本（若存在）：`python scripts/run_skill.py`（默认读 `/input/case.json`，写 `/app/output/result.json`）；路径不同时用 `--case` / `--output` 指定。
-2. **必须交付完整成品**：脚本只做结构解析；调用 Agent 必须输出覆盖全部材料的完整 `mindmap`（Mermaid 可渲染）、`nodes` 与 `edges`（每个节点有类型、出处与字符区间），并补齐 `structure_issues` 与 `outline`；不得只给根节点、截断分支或 `pending`。
-3. 最后自检：`case_id` 与输入一致；`output_contract` 每个字段都存在；`status` 取本合同允许值 `success | partial | insufficient_input | failed`；正文无 `pending`/`TODO`/空占位；数字、引用、来源可逐条回溯。
-
-运行保证：
-
-- 输入缺失、JSON 损坏、字段异常、输出目录不存在时，仍须写出结构化 `result.json` 并正常结束，不得崩溃或非零退出。
-- 不联网、不伪造数据、不声称平台评分或官方案例结果。
-- 交付物必须是可直接编辑与复核的成品，而不是流程说明。
-
-评分对齐（本题五个维度）：
-
-- 实际效果（40）：完整产出任务要求的最终成品，覆盖全部输入条目，可直接进入修改流程。
-- 使用增益（25）：体现相对基础 Agent 的可验证改进（结构化、术语/数字/引用核对、可编辑性）。
-- 创新增益（15）：保留方法学增量（分块、对齐、二次校验、版本比对等），并用结果证明其价值。
-- 可靠体验（10）：异常输入有明确降级与说明，不同长度/文体/重复运行下稳定产出。
-- 生态贡献（10）：用途、调用、输入输出、限制、示例、维护信息齐全，资源可被他人复用。
-
-## 最终交付强制要求
-
-1. **调用 Agent 必须交付成品，不是流程说明**：脚本产出只是索引、核对或规格骨架；调用 Agent 必须在同一 `result.json` 中补齐本题要求的最终产物（正文/译文/审稿意见/综述/分析结论/图表源文件与导出件/幻灯片页内容与讲稿/实验方案等）。交付字段为空、只有标题骨架，或含 `pending`、`TODO` 之类占位，一律视为未完成。
-2. **必须覆盖全部输入条目**：输入中的每个章节、问题、文献、图、页面、指标都要有对应条目，不得只处理示例或首条；确实缺失的条目写入 `uncertainty` / `limitations` 并说明原因，不得静默跳过。
-3. **必须自检后再交付**：`case_id` 与输入一致；`output_contract` 每个字段都存在；状态值取本题契约规定的枚举；数字、单位、引用、来源可逐条回溯；结果内部无自相矛盾。
-4. **参数等价**：`python scripts/run_skill.py --case <输入> --out <输出>` 与 `--output <输出>` 等价；默认 `/input/case.json` → `/app/output/result.json`。
-5. **平台用 3 个固定案例分别运行**：逻辑要由输入驱动，不针对某一份示例硬编码；字段命名差异走别名匹配与显式降级，并在 `uncertainty` 记录假设。
+- [ ] `case_id` 与输入一致；`output_contract` 每字段存在（未映射为 `null` 并登记）。
+- [ ] 每份材料都在 `coverage` 中：可读的进节点，不可读的写 `parsed:false` + `reason`。
+- [ ] 每个节点有 `id`、`type`、`type_reason`、`source`、`paragraph_index`、`char_start`/`char_end` 与 `quote`。
+- [ ] 冲突与缺口进 `review_queue`，未冒充事实。
+- [ ] `mindmap` 缩进与转义一致，可在 Mermaid 中直接渲染；重复节点只标记不删除。
+- [ ] 未新增源文没有的节点、数字或因果边；未声称平台评分。

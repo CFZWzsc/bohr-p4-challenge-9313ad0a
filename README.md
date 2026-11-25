@@ -2,9 +2,9 @@
 
 本题：写作19｜思维导图（challenge-9313ad0a，赛道 writing）。
 
-能力定位：在保留原始事实（数字、单位、引用、图表编号、专有名词）的前提下改写与扩写学术文本，产出可直接落盘的成稿，并给出逐条可核验的变更记录
+能力定位：从材料抽取概念层级与关系（从属/对比/因果），产出可打开、可继续编辑的思维导图，节点与连线带材料依据。
 
-交付物：result.json（契约齐全）、改写稿、evidence_map、change_log
+交付物：mindmap.json、mindmap.mmd、mindmap.opml、mindmap.svg、mindmap.md、mindmap-check.json
 
 
 ## 这个 Skill 做什么
